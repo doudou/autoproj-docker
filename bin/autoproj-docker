@@ -1,0 +1,166 @@
+#! /usr/bin/env ruby
+require 'erb'
+require 'yaml'
+require 'optparse'
+require 'tmpdir'
+
+class ConfigurationList
+    attr_reader :name
+    attr_reader :vars
+
+    def initialize(name)
+        @name = name
+        @vars = Hash.new
+    end
+
+    def add(key, *values)
+        vars[key] = values
+    end
+
+    def merge
+    end
+end
+
+class ImageConfig
+    # The user-visible name of the image
+    attr_reader :name
+    # The set of tags configured on this image
+    attr_reader :tags
+    # The set of configuration variables
+    attr_reader :variables
+
+    def initialize(name)
+        @name   = name
+        @docker_name = name
+        @tags   = Hash.new
+        @variables = Hash.new
+    end
+
+    # Sets or gets the docker image that is the source of all of the sub-images
+    def docker_name(name = nil)
+        if name
+            @docker_name = name
+        else @docker_name
+        end
+    end
+
+    # Sets up a configuration variable that will be applied on every tag.
+    # It can be overriden on a specific tag
+    def config(name, &block)
+        config = ConfigurationList.new(name)
+        if block
+            config.instance_eval(&block)
+        end
+        variables[name] = config
+    end
+
+    # Sets up a tag
+    #
+    # The provided block can be used to override some configuration
+    # variables
+    def tag(tag_name)
+        tag = TagConfig.new(name, tag_name)
+        if block_given?
+            tag.instance_eval(&block)
+        end
+        tags[name] = tag
+    end
+
+    # Return the list of TagConfig objects that represent what has been defined
+    def resolve
+        tags.map do |_, tag|
+            resolved = TagConfig.new(tag.name, tag.tag_name)
+            resolved.docker_name(docker_name)
+            resolved.variables.merge!(variables)
+            resolved.variables.merge!(tag.variables)
+            resolved.variables.delete_if do |_, t|
+                !t
+            end
+            resolved
+        end
+    end
+end
+
+class TagConfig < ImageConfig
+    attr_reader :tag_name
+
+    # Remove a configuration variable that exists on the tag's parent image
+    def remove_config(name)
+        variables[name] = nil
+    end
+end
+
+class Config
+    attr_reader :username
+    attr_reader :images
+
+    def username(name = nil)
+        if !name then @username
+        else @username = name
+        end
+    end
+
+    def image(name)
+        image = Image.new(name)
+        if block_given?
+            image.instance_eval(&proc)
+        end
+        images << image
+        image
+    end
+
+    def build(name, &filter)
+        builds[name] = filter || lambda { true }
+    end
+end
+
+config = YAML.load(File.read('config.yml'))
+images = Image.parse_from_yaml(config['images'])
+username = config['username']
+if username && username[-1, 1] != '/'
+    username += '/'
+end
+
+rebuilds = []
+options = OptionParser.new do |opt|
+    opt.on('--rebuild[=LIST]', Array, "list of builds to redo from scratch, do not give any name to rebuild all") do |build_names|
+        rebuilds =
+            if !build_names || build_names.empty? then config['builds']
+            else build_names
+            end
+    end
+end
+options.parse(ARGV)
+
+Dir.mktmpdir do |dir|
+    FileUtils.cp_r "ressources", dir
+    config['builds'].each do |build_name|
+        build_args = []
+        if rebuilds.include?(build_name)
+            build_args << "--no-cache"
+        end
+
+        template = ERB.new(File.read("Dockerfile.#{build_name}"))
+        images.each do |image|
+            pipe_r, pipe_w = IO.pipe
+            image.source_images.each do |image_name|
+                dockerfile  = template.result(binding)
+                dockerimage = "#{username}#{build_name}"
+                dockertag   = image.to_docker_build_name(image_name)
+                File.open(File.join(dir, "Dockerfile"), 'w') do |io|
+                    io.write dockerfile
+                end
+                pid = Process.spawn(
+                    Hash.new,
+                    "docker.io", "build", *build_args, "-t", "#{dockerimage}:#{dockertag}", dir,
+                    STDIN => pipe_r,
+                    pipe_w => :close)
+                pipe_r.close
+                pipe_w.write(dockerfile)
+                pipe_w.close
+                Process.wait(pid)
+            end
+        end
+    end
+end
+
