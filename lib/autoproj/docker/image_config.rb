@@ -46,12 +46,29 @@ module Autoproj
             #
             # The provided block can be used to override some configuration
             # variables
-            def tag(tag_name)
+            def tag(tag_name, &block)
                 tag = TagConfig.new(name, tag_name)
+                tag.docker_name(docker_name)
                 if block_given?
                     tag.instance_eval(&block)
                 end
                 tags[tag_name] = tag
+            end
+
+            def resolve_variable_matrix(variables)
+                if variables.empty?
+                    return [yield(Hash.new)].flatten
+                end
+
+                variables = variables.dup
+                key, values = variables.shift
+                values.values.map do |v|
+                    config_variable = ConfigVariable.new(key)
+                    config_variable.values[0] = v
+                    resolve_variable_matrix(variables) do |resolved_v|
+                        yield(Hash[key => config_variable].merge(resolved_v))
+                    end
+                end.flatten
             end
 
             # Return the list of TagConfig objects that represent what has been defined
@@ -61,15 +78,18 @@ module Autoproj
                     tags = [['latest', TagConfig.new(name, 'latest')]]
                 end
                 tags.map do |_, tag|
-                    resolved = TagConfig.new(tag.name, tag.tag_name)
-                    resolved.docker_name(docker_name)
-                    resolved.variables.merge!(variables)
-                    resolved.variables.merge!(tag.variables)
-                    resolved.variables.delete_if do |_, t|
-                        !t
+                    variables = self.variables.dup
+                    variables.merge! tag.variables
+                    variables.delete_if { |_, t| !t }
+
+                    resolve_variable_matrix(variables) do |var|
+                        resolved = TagConfig.new(tag.name, tag.tag_name)
+                        resolved.docker_name(tag.docker_name)
+                        resolved.docker_tag_name(tag.docker_tag_name)
+                        resolved.variables.merge!(var)
+                        resolved
                     end
-                    resolved
-                end
+                end.flatten
             end
         end
     end
