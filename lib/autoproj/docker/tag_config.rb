@@ -23,6 +23,22 @@ module Autoproj
             def remove_config(name)
                 variables[name] = nil
             end
+
+            def pretty_print(pp)
+                pp.text "#{name}:#{tag_name}"
+                pp.nest(2) do
+                    pp.breakable
+                    pp.text "docker: #{docker_name}:#{docker_tag_name}"
+                    pp.breakable
+                    pp.text "tags"
+                    pp.nest(2) do
+                        variables.each do |k, v|
+                            pp.breakable
+                            pp.text "#{k}=#{v}"
+                        end
+                    end
+                end
+            end
         end
     end
 end

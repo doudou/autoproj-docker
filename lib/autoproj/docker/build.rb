@@ -30,6 +30,16 @@ module Autoproj
                     name, generated_image_pattern, ressources_dir, dockerfile_template, images
             end
 
+            def pretty_print(pp)
+                pp.text build_name
+                pp.nest(2) do
+                    images.each do |img|
+                        pp.breakable
+                        img.pretty_print(pp)
+                    end
+                end
+            end
+
             def generated_image_name(image)
                 generated_image_pattern % [build_name]
             end
