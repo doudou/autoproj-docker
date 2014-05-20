@@ -1,0 +1,10 @@
+require 'erb'
+require 'yaml'
+require 'optparse'
+require 'tmpdir'
+
+require 'autoproj/docker/config'
+require 'autoproj/docker/config_variable'
+require 'autoproj/docker/image_config'
+require 'autoproj/docker/tag_config'
+require 'autoproj/docker/build'
