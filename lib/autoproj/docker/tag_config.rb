@@ -13,10 +13,21 @@ module Autoproj
         class TagConfig < ImageConfig
             # @return [String] the tag name
             attr_reader :tag_name
+            # @return [String] the tag of the docker image
+            attr_reader :docker_tag_name
 
             def initialize(image_name, tag_name)
                 super(image_name)
                 @tag_name = tag_name
+                @docker_tag_name = tag_name
+            end
+
+            # Sets or gets the tag name used in the generated image
+            def docker_tag_name(name = nil)
+                if name
+                    @docker_tag_name = name
+                end
+                @docker_tag_name
             end
 
             # Remove a configuration variable that exists on the tag's parent image
