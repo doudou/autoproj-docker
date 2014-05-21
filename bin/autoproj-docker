@@ -15,11 +15,11 @@ filter = Autoproj::Docker::Build.parse_filters(*filters)
 
 config = Autoproj::Docker::Config.load(config_file)
 builds = config.resolve
-builds.each do |b|
-    puts "starting #{b}"
-    b.run
+begin
     builds.each do |b|
         puts "starting #{b}"
         b.run(&filter)
     end
+rescue Interrupt
+    puts "Interrupted by user"
 end
