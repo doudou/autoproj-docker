@@ -3,6 +3,10 @@ require 'autoproj/docker'
 
 rebuilds = []
 options = OptionParser.new do |opt|
+    opt.on('--clean', 'clean leftover images and containers') do
+        Autoproj::Docker.clean
+        exit 0
+    end
     opt.on('--rebuild[=LIST]', Array, "list of builds to redo from scratch, do not give any name to rebuild all") do |build_names|
         rebuilds =
             if !build_names || build_names.empty? then config['builds']
