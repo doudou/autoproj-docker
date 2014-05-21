@@ -10,11 +10,16 @@ options = OptionParser.new do |opt|
             end
     end
 end
-config_file, *_ = options.parse(ARGV)
+config_file, *filters = options.parse(ARGV)
+filter = Autoproj::Docker::Build.parse_filters(*filters)
 
 config = Autoproj::Docker::Config.load(config_file)
 builds = config.resolve
 builds.each do |b|
     puts "starting #{b}"
     b.run
+    builds.each do |b|
+        puts "starting #{b}"
+        b.run(&filter)
+    end
 end

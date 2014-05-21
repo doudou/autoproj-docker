@@ -51,10 +51,16 @@ module Autoproj
                 puts msg
             end
 
-            def run
+            def run(&filter)
+                filter ||= proc { true }
                 Dir.mktmpdir do |dir|
                     FileUtils.cp_r ressources_dir, File.join(dir, "ressources")
                     images.each do |image|
+                        if !filter[self, image]
+                            progress "filtered out: #{image} on build #{build_name}"
+                            next
+                        end
+
                         values = image.variables.map do |k, v|
                             if v.values.size > 1
                                 raise ArgumentError, "something fishy: variable #{k} has more than one value"
@@ -85,6 +91,30 @@ module Autoproj
             end
 
             def to_s; build_name end
+
+            def self.parse_filters(*args)
+                filters = args.map do |filter_str|
+                    case filter_str
+                    when /=/ # exact filter
+                        var_name, matcher = filter_str.split("=")
+                    when /~/ # regexp filter
+                        var_name, matcher = filter_str.split("~")
+                        matcher = Regexp.new(matcher)
+                    end
+                    puts "matching #{var_name} with #{matcher}"
+                    [var_name, matcher]
+                end
+
+                lambda do |build, image|
+                    meta = build.metadata.merge(image.metadata)
+                    filters.all? do |var_name, matcher|
+                        if value = meta[var_name]
+                            matcher === value.to_s
+                        else false
+                        end
+                    end
+                end
+            end
         end
     end
 end
