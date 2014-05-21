@@ -35,6 +35,12 @@ module Autoproj
                 variables[name] = nil
             end
 
+            def metadata
+                super.merge(
+                    'tag_name' => tag_name,
+                    'docker_tag_name' => docker_tag_name)
+            end
+
             def pretty_print(pp)
                 pp.text "#{name}:#{tag_name}"
                 pp.nest(2) do
@@ -45,7 +51,7 @@ module Autoproj
                     pp.nest(2) do
                         variables.each do |k, v|
                             pp.breakable
-                            pp.text "#{k}=#{v}"
+                            pp.text "#{k}=#{v.values}"
                         end
                     end
                 end

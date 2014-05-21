@@ -62,13 +62,36 @@ module Autoproj
 
                 variables = variables.dup
                 key, values = variables.shift
-                values.values.map do |v|
+                values.values.each_with_index.map do |v, idx|
                     config_variable = ConfigVariable.new(key)
-                    config_variable.values[0] = v
+                    config_variable.add v, metadata: values.metadata[idx]
                     resolve_variable_matrix(variables) do |resolved_v|
                         yield(Hash[key => config_variable].merge(resolved_v))
                     end
                 end.flatten
+            end
+
+            def to_s
+                metadata.map do |k, v|
+                    "#{k}=#{v}"
+                end.join(",")
+            end
+
+            def metadata
+                result = Hash[
+                    'image_name' => name,
+                    'docker_image_name' => docker_name]
+                variables.sort_by { |k, _| k }.each do |k, v|
+                    if v.values.size > 1
+                        raise ArgumentError, "cannot generate metadata: variable #{k} has more than one value"
+                    elsif v.values.empty?
+                        raise ArgumentError, "cannot generate metadata: variable #{k} has no value"
+                    end
+                    if m = v.metadata.first
+                        result[k] = m
+                    end
+                end
+                result
             end
 
             # Return the list of TagConfig objects that represent what has been defined

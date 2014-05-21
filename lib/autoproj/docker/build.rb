@@ -28,6 +28,9 @@ module Autoproj
             def initialize(name, generated_image_pattern, ressources_dir, dockerfile_template, images)
                 @build_name, @generated_image_pattern, @ressources_dir, @dockerfile_template, @images =
                     name, generated_image_pattern, ressources_dir, dockerfile_template, images
+
+            def metadata
+                Hash['build_name' => build_name]
             end
 
             def pretty_print(pp)
@@ -44,7 +47,13 @@ module Autoproj
                 generated_image_pattern % [build_name]
             end
             def generated_tag_name(image)
-                "%s-%s" % [image.name, image.tag_name]
+                variables = image.metadata.dup
+                variables.delete 'image_name'
+                variables.delete 'docker_image_name'
+                variables.delete 'tag_name'
+                variables.delete 'docker_tag_name'
+                variables = variables.map { |k, v| "#{k}=#{v}" }
+                "#{image.name}-#{image.tag_name}_#{variables.join("_")}"
             end
 
             def progress(msg)
