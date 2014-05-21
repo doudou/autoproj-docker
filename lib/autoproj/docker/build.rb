@@ -14,6 +14,9 @@ module Autoproj
             #   available in the docker image inside the ressources/
             #   subdirectory
             attr_reader :ressources_dir
+            # @return [String] the directory in which the log files should be
+            #   saved
+            attr_reader :logfile_dir
             # @return [ERB] the Dockerfile template
             attr_reader :dockerfile_template
             # @return [Array<TagConfig>] the set of docker images on which we
@@ -28,6 +31,8 @@ module Autoproj
             def initialize(name, generated_image_pattern, ressources_dir, dockerfile_template, images)
                 @build_name, @generated_image_pattern, @ressources_dir, @dockerfile_template, @images =
                     name, generated_image_pattern, ressources_dir, dockerfile_template, images
+                @logfile_dir = File.expand_path(File.join('..', 'log'), ressources_dir)
+            end
 
             def metadata
                 Hash['build_name' => build_name]
@@ -90,11 +95,25 @@ module Autoproj
                         File.open(File.join(dir, "Dockerfile"), 'w') do |io|
                             io.write dockerfile
                         end
+                        logfile_basename = "#{dockerimage}:#{dockertag}.log".
+                            gsub(/[^\w]/, '_')
+                        logfile_path = File.join(logfile_dir, logfile_basename)
+                        FileUtils.mkdir_p(File.dirname(logfile_path))
                         progress "generating new image #{dockerimage}:#{dockertag} using #{build_name}"
-                        pid = Process.spawn(
-                            Hash.new,
-                            "docker.io", "build", "-t", "#{dockerimage}:#{dockertag}", dir)
+                        progress "  output redirected to #{logfile_path}"
+                        pid = File.open(logfile_path, 'w') do |logfile|
+                            Process.spawn(
+                                Hash.new,
+                                "docker.io", "build", "-t", "#{dockerimage}:#{dockertag}", dir,
+                                STDOUT => logfile, STDERR => logfile)
+                        end
                         Process.wait(pid)
+                        result = $?
+                        if result.success?
+                            progress "  success"
+                        else
+                            progress "  failed"
+                        end
                     end
                 end
             end
