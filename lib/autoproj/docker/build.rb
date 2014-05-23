@@ -104,7 +104,7 @@ module Autoproj
                         pid = File.open(logfile_path, 'w') do |logfile|
                             Process.spawn(
                                 Hash.new,
-                                "docker.io", "build", "-t", "#{dockerimage}:#{dockertag}", dir,
+                                "docker.io", "build", '--no-cache', "-t", "#{dockerimage}:#{dockertag}", dir,
                                 STDOUT => logfile, STDERR => logfile)
                         end
                         Process.wait(pid)
