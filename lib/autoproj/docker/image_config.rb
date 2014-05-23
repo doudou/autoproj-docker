@@ -98,7 +98,7 @@ module Autoproj
             def resolve
                 tags = self.tags
                 if tags.empty?
-                    tags = [['latest', TagConfig.new(name, 'latest')]]
+                    tag 'latest'
                 end
                 tags.map do |_, tag|
                     variables = self.variables.dup
