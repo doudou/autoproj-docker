@@ -14,8 +14,15 @@ module Autoproj
             def self.load(config_file)
                 config_dir = File.expand_path(File.dirname(config_file))
                 config = new(config_dir)
-                config.instance_eval(File.read(config_file), config_file, 1)
+                config.load(config_file)
                 config
+            end
+
+            def load(config_file)
+                if !File.file?(config_file) && File.file?(config_file_rb = "#{config_file}.rb")
+                    config_file = config_file_rb
+                end
+                instance_eval(File.read(config_file), config_file, 1)
             end
 
             def initialize(config_dir)
@@ -48,7 +55,7 @@ module Autoproj
             # @param [String] name the image name
             # @return [ImageConfig] the image configuration
             def image(name)
-                image = ImageConfig.new(name)
+                image = ImageConfig.new(name, config_dir)
                 if block_given?
                     image.instance_eval(&proc)
                 end

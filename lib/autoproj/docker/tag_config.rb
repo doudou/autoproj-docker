@@ -16,8 +16,8 @@ module Autoproj
             # @return [String] the tag of the docker image
             attr_reader :docker_tag_name
 
-            def initialize(image_name, tag_name)
-                super(image_name)
+            def initialize(image_name, reference_dir, tag_name)
+                super(image_name, reference_dir)
                 @tag_name = tag_name
                 @docker_tag_name = tag_name
             end

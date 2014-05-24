@@ -75,6 +75,12 @@ module Autoproj
                             next
                         end
 
+                        source_image_id = [image.docker_name, image.docker_tag_name].compact.join(":")
+                        # Now apply any volume mount
+                        source_image_id = image.volumes.inject(source_image_id) do |id, vol|
+                            vol.apply(id)
+                        end
+
                         values = image.variables.map do |k, v|
                             if v.values.size > 1
                                 raise ArgumentError, "something fishy: variable #{k} has more than one value"
@@ -83,8 +89,8 @@ module Autoproj
                             end
                             v.values.first
                         end
-                        context = Struct.new(:image, *image.variables.keys).
-                            new(image, *values)
+                        context = Struct.new(:source_image_id, :image, *image.variables.keys).
+                            new(source_image_id, image, *values)
 
                         template = self.dockerfile_template
                         dockerfile = context.instance_eval do

@@ -10,18 +10,25 @@ module Autoproj
         # dimensions as well as their possible values. Specific builds can
         # constrain which parts of the matrix apply to itself.
         class ImageConfig
+            # Base path for all relative paths given to the image configuration
+            attr_reader :reference_dir
             # The user-visible name of the image
             attr_reader :name
             # The set of tags configured on this image
             attr_reader :tags
             # The set of configuration variables
             attr_reader :variables
+            # Set of volumes that need to be mounted on the image prior to
+            # calling build
+            attr_reader :volumes
 
-            def initialize(name)
+            def initialize(name, reference_dir)
                 @name   = name
                 @docker_name = name
                 @tags   = Hash.new
                 @variables = Hash.new
+                @volumes = Array.new
+                @reference_dir = reference_dir
             end
 
             # Sets or gets the docker image that is the source of all of the sub-images
@@ -30,6 +37,17 @@ module Autoproj
                     @docker_name = name
                 else @docker_name
                 end
+            end
+
+            # Mount volumes from the following named volume container
+            def volume_from(name)
+                volumes << VolumeFrom.new(name)
+            end
+
+            # Mount a volume from a local directory
+            def volume_mount(local_dir, container_dir)
+                local_dir = File.expand_path(local_dir, reference_dir)
+                volumes << VolumeMount.new(local_dir, container_dir)
             end
 
             # Sets up a configuration variable that will be applied on every tag.
@@ -47,7 +65,7 @@ module Autoproj
             # The provided block can be used to override some configuration
             # variables
             def tag(tag_name, &block)
-                tag = TagConfig.new(name, tag_name)
+                tag = TagConfig.new(name, reference_dir, tag_name)
                 tag.docker_name(docker_name)
                 if block_given?
                     tag.instance_eval(&block)
@@ -106,7 +124,8 @@ module Autoproj
                     variables.delete_if { |_, t| !t }
 
                     resolve_variable_matrix(variables) do |var|
-                        resolved = TagConfig.new(tag.name, tag.tag_name)
+                        resolved = TagConfig.new(tag.name, tag.reference_dir, tag.tag_name)
+                        resolved.volumes.concat(tag.volumes).concat(volumes)
                         resolved.docker_name(tag.docker_name)
                         resolved.docker_tag_name(tag.docker_tag_name)
                         resolved.variables.merge!(var)
