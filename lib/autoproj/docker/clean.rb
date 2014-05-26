@@ -1,14 +1,25 @@
 module Autoproj
     module Docker
         def self.clean
-            containers = `docker.io ps -a`.split("\n")
+            # Look for a .dockerkeep command
+            if File.exists?(".dockerkeep")
+                keep_pattern = File.readlines(".dockerkeep").
+                    map do |line|
+                        line = line.strip
+                        next if line.empty? || line =~ /^#/
+                        Regexp.new(line)
+                    end.compact
+            end
+
+            containers = `docker.io ps -a`.split("\n").
+                map { |line| line.strip }
             if !$?.success?
                 raise "failed to run docker ps -a"
             end
             containers.shift
-            containers = containers.map do |line|
-                line.strip.split(/\s+/).first
-            end
+            containers = containers.
+                find_all { |line| !keep_pattern.any? { |rx| rx === line } }.
+                map { |line| line.strip.split(/\s+/).first }
             puts "removing #{containers.size} containers"
             if !containers.empty?
                 system("docker.io", "rm", *containers)
