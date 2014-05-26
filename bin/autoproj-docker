@@ -19,7 +19,7 @@ filter = Autoproj::Docker::Build.parse_filters(*filters)
 
 config = Autoproj::Docker::Config.load(config_file)
 begin
-    config.run
+    config.run(&filter)
 rescue Interrupt
     puts "Interrupted by user"
 end

@@ -151,11 +151,12 @@ module Autoproj
                 puts msg
             end
 
-            def run(images)
+            def run(images, &additional_filter)
+                additional_filter ||= proc { true }
                 Dir.mktmpdir do |dir|
                     FileUtils.cp_r ressources_dir, File.join(dir, "ressources")
                     images.each do |image|
-                        if !filter[image]
+                        if !filter[image] || !additional_filter[self, image]
                             progress "filtered out: #{image} on build #{build_name}"
                             next
                         end
