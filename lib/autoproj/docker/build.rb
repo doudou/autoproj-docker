@@ -95,7 +95,7 @@ module Autoproj
             #    that should be ignored to find the original build. This is needed
             #    if the new build has a different set of configuration options than
             #    the original one
-            def from_build(name, options)
+            def from_build(name, options = Hash.new)
                 @source_build = [name, options]
             end
 
@@ -114,7 +114,17 @@ module Autoproj
                 target_id_generator.call(self, image).strip
             end
 
-            def generate_dockerfile(source_image_id, target_image_id, image)
+            module TemplateProcessing
+                def process_template(file)
+                    content = ERB.new(File.read(file)).result(binding)
+                    File.open(File.join(dir, file), 'w') do |io|
+                        io.write content
+                    end
+                    file
+                end
+            end
+
+            def generate_dockerfile(dir, source_image_id, target_image_id, image)
                 values = image.variables.map do |k, v|
                     if v.values.size > 1
                         raise ArgumentError, "something fishy: variable #{k} has more than one value"
@@ -123,8 +133,9 @@ module Autoproj
                     end
                     v.values.first
                 end
-                context = Struct.new(:source_image_id, :target_image_id, :image, *image.variables.keys).
-                    new(source_image_id, target_image_id, image, *values)
+                context = Struct.new(:dir, :source_image_id, :target_image_id, :image, *image.variables.keys).
+                    new(dir, source_image_id, target_image_id, image, *values)
+                context.extend TemplateProcessing
 
                 template = self.dockerfile_template
                 context.instance_eval do
@@ -153,7 +164,7 @@ module Autoproj
                             vol.apply(id)
                         end
 
-                        dockerfile = generate_dockerfile(source_image_id, target_image_id, image)
+                        dockerfile = generate_dockerfile(dir, source_image_id, target_image_id, image)
                         File.open(File.join(dir, "Dockerfile"), 'w') do |io|
                             io.write dockerfile
                         end
