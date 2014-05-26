@@ -31,6 +31,13 @@ module Autoproj
                 @builds = Hash.new
             end
 
+            # Enumerates the root image configurations
+            #
+            # @yieldparam [ImageConfig] image
+            def each_image(&block)
+                images.each(&block)
+            end
+
             # Sets or gets the docker username under which new images should be saved
             #
             # @overload username
@@ -73,24 +80,28 @@ module Autoproj
             # @yieldreturn [Boolean] true if the build should proceed on this
             #   tag, false otherwise
             # @return [ImageConfig] the image configuration
-            def build(name, &filter)
+            def build(name)
                 if !File.exists?(File.join(config_dir, "Dockerfile.#{name}"))
                     raise ArgumentError, "there is no Dockerfile.#{name} in #{config_dir}"
                 end
-                builds[name] = filter || proc { true }
+                builds[name] = Build.load(name, username, config_dir)
+                if block_given?
+                    builds[name].instance_eval(&proc)
+                end
+                builds[name]
             end
 
             # Resolves the raw configuration into a proper list of Build objects
-            def resolve
-                all_images = images.inject(Array.new) do |all, image|
+            def resolve_images
+                images.inject(Array.new) do |all, image|
                     all.concat(image.resolve)
                 end
-                builds.map do |build_name, filter|
-                    applicable_images = all_images.find_all { |img| filter[img] }
-                    Build.load(build_name,
-                               "#{username}/%s",
-                               config_dir,
-                               applicable_images)
+            end
+
+            def run
+                images = resolve_images
+                builds.each_value do |build|
+                    build.run(images)
                 end
             end
         end

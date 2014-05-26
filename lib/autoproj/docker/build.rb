@@ -4,11 +4,6 @@ module Autoproj
         class Build
             # @return [String] the build name
             attr_reader :build_name
-            # @return [String] pattern used to generate image names. The pattern
-            #   can contain one %s placeholder which is going to be replaced by
-            #   the build name. The generated images are tagged using the source
-            #   image names (such as image_name-tag_name)
-            attr_reader :generated_image_pattern
             # @return [String] the directory containing data that should be
             #   available in the docker image. The files in this directory are
             #   available in the docker image inside the ressources/
@@ -19,19 +14,62 @@ module Autoproj
             attr_reader :logfile_dir
             # @return [ERB] the Dockerfile template
             attr_reader :dockerfile_template
-            # @return [Array<TagConfig>] the set of docker images on which we
-            #   should build
-            attr_reader :images
 
-            def self.load(build_name, generated_image_pattern, config_dir, images)
-                template = ERB.new(File.read(File.join(config_dir, "Dockerfile.#{build_name}")))
-                new(build_name, generated_image_pattern, File.join(config_dir, 'ressources'), template, images)
+            # @return [String] the username under which the generated docker
+            #   images should be stored. It is effective only if
+            #   {#target_id_pattern} uses it, which is the default
+            attr_reader :username
+            # @return [#call] object used to generate the source ID based
+            #   on the build configuration and image.
+            attr_accessor :source_id_generator
+            # @return [#call] object used to generate the target ID based
+            #   on the build configuration and image.
+            attr_accessor :target_id_generator
+
+            # @overload filter { |image| ... }
+            #   Sets a filter block, that is a filter object that, given an
+            #   ImageConfig object returns whether it should be built (true) or
+            #   not (false)
+            #
+            # @overload filter
+            #   Returns the current filter block
+            def filter
+                if block_given?
+                    @filter = proc
+                else
+                    @filter
+                end
             end
 
-            def initialize(name, generated_image_pattern, ressources_dir, dockerfile_template, images)
-                @build_name, @generated_image_pattern, @ressources_dir, @dockerfile_template, @images =
-                    name, generated_image_pattern, ressources_dir, dockerfile_template, images
+            def self.default_source_id_generator(build, image)
+                [image.docker_name, image.docker_tag_name].compact.join(":")
+            end
+
+            def self.default_target_id_generator(build, image, options = Hash.new)
+                variables = image.metadata.dup
+                variables.delete 'image_name'
+                variables.delete 'docker_image_name'
+                variables.delete 'tag_name'
+                variables.delete 'docker_tag_name'
+                Array(options[:ignore]).each do |key|
+                    variables.delete key
+                end
+                variables = variables.map { |k, v| "#{k}=#{v}" }
+                "#{build.username}/#{build.build_name}:#{image.name}-#{image.tag_name}_#{variables.join("_")}"
+            end
+
+            def self.load(build_name, username, config_dir)
+                template = ERB.new(File.read(File.join(config_dir, "Dockerfile.#{build_name}")))
+                new(build_name, username, File.join(config_dir, 'ressources'), template)
+            end
+
+            def initialize(name, username, ressources_dir, dockerfile_template)
+                @build_name, @username, @ressources_dir, @dockerfile_template =
+                    name, username, ressources_dir, dockerfile_template
                 @logfile_dir = File.expand_path(File.join('..', 'log'), ressources_dir)
+                @source_id_generator = self.class.method(:default_source_id_generator)
+                @target_id_generator = self.class.method(:default_target_id_generator)
+                @filter = proc { true }
             end
 
             def metadata
@@ -40,77 +78,94 @@ module Autoproj
 
             def pretty_print(pp)
                 pp.text build_name
-                pp.nest(2) do
-                    images.each do |img|
-                        pp.breakable
-                        img.pretty_print(pp)
-                    end
+            end
+
+            # @return the autoproj-docker build from which this build should
+            #   start
+            # @see from_build
+            attr_reader :source_build
+
+            # Declares that this build should use the images already created by
+            # another autoproj-docker build
+            #
+            # It is assumed that the builds share the same target_id_generator
+            # and username
+            #
+            # @option options [Array<String>] :ignore list of metadata entries
+            #    that should be ignored to find the original build. This is needed
+            #    if the new build has a different set of configuration options than
+            #    the original one
+            def from_build(name, options)
+                @source_build = [name, options]
+            end
+
+            def generate_source_id(image)
+                if source_build
+                    source_build_name, options = source_build
+                    fake_build = Struct.new :build_name, :username
+                    fake_build = fake_build.new(source_build_name, username)
+                    target_id_generator.call(fake_build, image, options).strip
+                else
+                    source_id_generator.call(self, image).strip
                 end
             end
 
-            def generated_image_name(image)
-                generated_image_pattern % [build_name]
+            def generate_target_id(image)
+                target_id_generator.call(self, image).strip
             end
-            def generated_tag_name(image)
-                variables = image.metadata.dup
-                variables.delete 'image_name'
-                variables.delete 'docker_image_name'
-                variables.delete 'tag_name'
-                variables.delete 'docker_tag_name'
-                variables = variables.map { |k, v| "#{k}=#{v}" }
-                "#{image.name}-#{image.tag_name}_#{variables.join("_")}"
+
+            def generate_dockerfile(source_image_id, target_image_id, image)
+                values = image.variables.map do |k, v|
+                    if v.values.size > 1
+                        raise ArgumentError, "something fishy: variable #{k} has more than one value"
+                    elsif v.values.empty?
+                        raise ArgumentError, "something fishy: variable #{k} has no value"
+                    end
+                    v.values.first
+                end
+                context = Struct.new(:source_image_id, :target_image_id, :image, *image.variables.keys).
+                    new(source_image_id, target_image_id, image, *values)
+
+                template = self.dockerfile_template
+                context.instance_eval do
+                    template.result(binding)
+                end
             end
 
             def progress(msg)
                 puts msg
             end
 
-            def run(&filter)
-                filter ||= proc { true }
+            def run(images)
                 Dir.mktmpdir do |dir|
                     FileUtils.cp_r ressources_dir, File.join(dir, "ressources")
                     images.each do |image|
-                        if !filter[self, image]
+                        if !filter[image]
                             progress "filtered out: #{image} on build #{build_name}"
                             next
                         end
 
-                        source_image_id = [image.docker_name, image.docker_tag_name].compact.join(":")
-                        # Now apply any volume mount
+                        source_image_id = generate_source_id(image)
+                        target_image_id = generate_target_id(image)
+
+                        # Now apply any volume mounts
                         source_image_id = image.volumes.inject(source_image_id) do |id, vol|
                             vol.apply(id)
                         end
 
-                        values = image.variables.map do |k, v|
-                            if v.values.size > 1
-                                raise ArgumentError, "something fishy: variable #{k} has more than one value"
-                            elsif v.values.empty?
-                                raise ArgumentError, "something fishy: variable #{k} has no value"
-                            end
-                            v.values.first
-                        end
-                        context = Struct.new(:source_image_id, :image, *image.variables.keys).
-                            new(source_image_id, image, *values)
-
-                        template = self.dockerfile_template
-                        dockerfile = context.instance_eval do
-                            template.result(binding)
-                        end
-                        dockerimage = generated_image_name(image)
-                        dockertag   = generated_tag_name(image)
+                        dockerfile = generate_dockerfile(source_image_id, target_image_id, image)
                         File.open(File.join(dir, "Dockerfile"), 'w') do |io|
                             io.write dockerfile
                         end
-                        logfile_basename = "#{dockerimage}:#{dockertag}.log".
-                            gsub(/[^\w]/, '_')
-                        logfile_path = File.join(logfile_dir, logfile_basename)
+                        logfile_basename = target_image_id.gsub(/[^\w]/, '_')
+                        logfile_path = File.join(logfile_dir, "#{logfile_basename}.log")
                         FileUtils.mkdir_p(File.dirname(logfile_path))
-                        progress "generating new image #{dockerimage}:#{dockertag} using #{build_name}"
+                        progress "generating new image #{target_image_id} using #{build_name}"
                         progress "  output redirected to #{logfile_path}"
                         pid = File.open(logfile_path, 'w') do |logfile|
                             Process.spawn(
                                 Hash.new,
-                                "docker.io", "build", '--no-cache', "-t", "#{dockerimage}:#{dockertag}", dir,
+                                "docker.io", "build", '--no-cache', "-t", "#{target_image_id}", dir,
                                 STDOUT => logfile, STDERR => logfile)
                         end
                         Process.wait(pid)

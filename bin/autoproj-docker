@@ -18,12 +18,8 @@ config_file, *filters = options.parse(ARGV)
 filter = Autoproj::Docker::Build.parse_filters(*filters)
 
 config = Autoproj::Docker::Config.load(config_file)
-builds = config.resolve
 begin
-    builds.each do |b|
-        puts "starting #{b}"
-        b.run(&filter)
-    end
+    config.run
 rescue Interrupt
     puts "Interrupted by user"
 end
