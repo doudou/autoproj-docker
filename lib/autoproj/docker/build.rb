@@ -26,6 +26,10 @@ module Autoproj
             #   on the build configuration and image.
             attr_accessor :target_id_generator
 
+            def save_failed_builds?
+                true
+            end
+
             # @overload filter { |image| ... }
             #   Sets a filter block, that is a filter object that, given an
             #   ImageConfig object returns whether it should be built (true) or
@@ -185,6 +189,12 @@ module Autoproj
                             progress "  success"
                         else
                             progress "  failed"
+                            if save_failed_builds?
+                                failed_image_id = target_image_id.gsub(':', "-FAILED:")
+                                progress "  saving failed container as #{failed_image_id}"
+                                container_id = `docker.io ps -n=1 -q`.strip
+                                `docker.io commit #{container_id} #{failed_image_id}`
+                            end
                         end
                     end
                 end
