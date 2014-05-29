@@ -98,10 +98,10 @@ module Autoproj
                 end
             end
 
-            def run
+            def run(&additional_filter)
                 images = resolve_images
                 builds.each_value do |build|
-                    build.run(images)
+                    build.run(images, &additional_filter)
                 end
             end
         end
