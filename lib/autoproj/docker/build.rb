@@ -147,8 +147,8 @@ module Autoproj
                 end
             end
 
-            def progress(msg)
-                puts msg
+            def progress(msg, *color)
+                puts Docker.color(msg, *color)
             end
 
             def run(images, &additional_filter)
@@ -157,7 +157,7 @@ module Autoproj
                     FileUtils.cp_r ressources_dir, File.join(dir, "ressources")
                     images.each do |image|
                         if !filter[image] || !additional_filter[self, image]
-                            progress "filtered out: #{image} on build #{build_name}"
+                            progress "filtered out: #{image} on build #{build_name}", :magenta, :bold
                             next
                         end
 
@@ -176,7 +176,7 @@ module Autoproj
                         logfile_basename = target_image_id.gsub(/[^\w]/, '_')
                         logfile_path = File.join(logfile_dir, "#{logfile_basename}.log")
                         FileUtils.mkdir_p(File.dirname(logfile_path))
-                        progress "generating new image #{target_image_id} using #{build_name}"
+                        progress "generating new image #{target_image_id} using #{build_name}", :bold
                         progress "  output redirected to #{logfile_path}"
                         pid = File.open(logfile_path, 'w') do |logfile|
                             Process.spawn(
@@ -184,15 +184,18 @@ module Autoproj
                                 "docker.io", "build", '--no-cache', "-t", "#{target_image_id}", dir,
                                 STDOUT => logfile, STDERR => logfile)
                         end
+                        tic = Time.now
                         Process.wait(pid)
+                        duration = "%.2f" % [Time.now - tic]
                         result = $?
+
                         if result.success?
-                            progress "  success"
+                            progress "  success in #{duration}", :green
                         else
-                            progress "  failed"
+                            progress "  failed in #{duration}", :red
                             if save_failed_builds?
                                 failed_image_id = target_image_id.gsub(':', "-FAILED:")
-                                progress "  saving failed container as #{failed_image_id}"
+                                progress "  saving failed container as #{failed_image_id}", :red
                                 container_id = `docker.io ps -n=1 -q`.strip
                                 `docker.io commit #{container_id} #{failed_image_id}`
                             end

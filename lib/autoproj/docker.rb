@@ -2,6 +2,7 @@ require 'erb'
 require 'yaml'
 require 'optparse'
 require 'tmpdir'
+require 'highline'
 
 require 'autoproj/docker/config'
 require 'autoproj/docker/config_variable'
@@ -18,6 +19,14 @@ module Autoproj
         attr_accessor :docker
         module_function :docker
         @docker = 'docker.io'
+
+        attr_reader :console
+        module_function :console
+        @console = HighLine.new
+        
+        def self.color(*args)
+            console.color(*args)
+        end
 
         class RunError < RuntimeError; end
 
